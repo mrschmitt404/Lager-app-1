@@ -9,7 +9,6 @@ st.set_page_config(
 
 # Initialize Session State for Data persistence if not already present
 if "inventory_df" not in st.session_state:
-    # Base 31 Viega Temponox items
     items_data = [
         ("1703", "Temponox Rohr (6m Stange)", "28 mm", 3, 6, 0, 0),
         ("1703", "Temponox Rohr (6m Stange)", "22 mm", 2, 4, 0, 0),
@@ -50,13 +49,12 @@ if "inventory_df" not in st.session_state:
 
 if "log_df" not in st.session_state:
     st.session_state.log_df = pd.DataFrame(columns=[
-        "Datum", "Baustelle", "Artikel", "Dimension", "Menge", "Monteur"
+        "Datum", "Baustelle", "Artikelbezeichnung", "Dimension", "Menge", "Monteur"
     ])
 
 st.title("🔧 Viega Temponox – Material & Lager-App")
 st.markdown("Einfache mobile Erfassung für Baustellen & Live-Bestandsübersicht.")
 
-# Sidebar Navigation
 menu = st.sidebar.selectbox("Menü", [
     "📦 Lagerbestand & Status",
     "🏗️ Baustellen-Verbrauch buchen",
@@ -64,26 +62,20 @@ menu = st.sidebar.selectbox("Menü", [
 ])
 
 df = st.session_state.inventory_df
-
-# Calculate Total and Status dynamically
 df["Gesamtbestand"] = df["Im Lager"] + df["In Montagekiste"]
 
-# Safely subtract consumption from log even if empty
 if not st.session_state.log_df.empty:
-    consumption_totals = st.session_state.log_df.groupby(["Artikel", "Dimension"])["Menge"].sum().reset_index()
-    df = df.merge(consumption_totals, on=["Artikel", "Dimension"], how="left")
+    consumption_totals = st.session_state.log_df.groupby(["Artikelbezeichnung", "Dimension"])["Menge"].sum().reset_index()
+    df = df.merge(consumption_totals, on=["Artikelbezeichnung", "Dimension"], how="left")
     df["Menge"] = df["Menge"].fillna(0)
-    df["Netto-Gesamt"] = df["Gesamtbestand"] - df["Menge"]
 else:
     df["Menge"] = 0
-    df["Netto-Gesamt"] = df["Gesamtbestand"]
 
+df["Netto-Gesamt"] = df["Gesamtbestand"] - df["Menge"]
 df["Status"] = df.apply(lambda row: "🔴 BESTELLEN!" if row["Netto-Gesamt"] <= row["Mindestbestand"] else "🟢 OK", axis=1)
 
 if menu == "📦 Lagerbestand & Status":
     st.subheader("Aktueller Lagerbestand & Bestell-Ampel")
-    
-    # KPI Metrics on top
     col1, col2, col3 = st.columns(3)
     total_items = len(df)
     to_order = len(df[df["Status"] == "🔴 BESTELLEN!"])
@@ -93,15 +85,12 @@ if menu == "📦 Lagerbestand & Status":
     
     st.divider()
     
-    # Display Table
     display_df = df[["Modell", "Artikelbezeichnung", "Dimension", "Mindestbestand", "Im Lager", "In Montagekiste", "Menge", "Netto-Gesamt", "Status"]]
     display_df.columns = ["Modell", "Artikel", "Dimension", "Mindest", "Lager", "Kiste", "Verbraucht", "Gesamt", "Status"]
     st.dataframe(display_df, use_container_width=True, height=600)
 
 elif menu == "🏗️ Baustellen-Verbrauch buchen":
     st.subheader("Baustellen-Verbrauch erfassen (Aufmaß)")
-    st.markdown("Wähle den verbauten Artikel aus und trage die Stückzahl ein. Das System zieht es sofort vom Lager ab.")
-    
     with st.form("verbrauch_form"):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -109,12 +98,9 @@ elif menu == "🏗️ Baustellen-Verbrauch buchen":
         with col_b:
             monteur = st.text_input("Monteur", placeholder="Dein Name")
         
-        # Dropdown options formatted cleanly
         df["Dropdown_Label"] = df["Artikelbezeichnung"].str.replace("Temponox ", "") + " | " + df["Dimension"] + " (Mod. " + df["Modell"] + ")"
         selected_label = st.selectbox("Artikel & Dimension auswählen", df["Dropdown_Label"].tolist())
-        
-        menge = st.number_input("Verbrauchte Stück / Stangen", min_value=1, max_value=500, value=1)
-        
+        menge = st.number_input("Verbrauchte Stück / Stangen", min_value=-100, max_value=500, value=1)
         submitted = st.form_submit_button("Verbrauch buchen & Bestand aktualisieren")
         
         if submitted:
@@ -122,31 +108,26 @@ elif menu == "🏗️ Baustellen-Verbrauch buchen":
             new_log = pd.DataFrame({
                 "Datum": [pd.Timestamp.now().strftime("%d.%m.%Y %H:%M")],
                 "Baustelle": [baustelle if baustelle else "Unbekannt"],
-                "Artikel": [selected_row["Artikelbezeichnung"]],
+                "Artikelbezeichnung": [selected_row["Artikelbezeichnung"]],
                 "Dimension": [selected_row["Dimension"]],
                 "Menge": [menge],
                 "Monteur": [monteur if monteur else "Team"]
             })
             st.session_state.log_df = pd.concat([st.session_state.log_df, new_log], ignore_index=True)
-            st.success(f"Erfolgreich gebucht: {menge}x {selected_label} für Baustelle '{baustelle}'!")
+            st.success("Erfolgreich gebucht!")
 
     st.divider()
     st.subheader("Letzte Buchungen auf Baustellen")
     if not st.session_state.log_df.empty:
         st.dataframe(st.session_state.log_df, use_container_width=True)
-    else:
-        st.info("Bisher noch keine Verbräuche eingetragen.")
 
 elif menu == "⚙️ Stammdaten / Lager anpassen":
     st.subheader("Startbestände anpassen (Regal & Kiste)")
-    st.markdown("Hier trägst du ein, was physisch im Regal im Lager oder in den Kisten auf den Autos liegt.")
-    
     edited_df = st.data_editor(
         df[["Modell", "Artikelbezeichnung", "Dimension", "Im Lager", "In Montagekiste"]],
         use_container_width=True,
         key="inventory_editor"
     )
-    
     if st.button("Bestände speichern"):
         st.session_state.inventory_df["Im Lager"] = edited_df["Im Lager"]
         st.session_state.inventory_df["In Montagekiste"] = edited_df["In Montagekiste"]
