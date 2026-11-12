@@ -64,12 +64,14 @@ menu = st.sidebar.selectbox("Menü", [
 df = st.session_state.inventory_df
 df["Gesamtbestand"] = df["Im Lager"] + df["In Montagekiste"]
 
+# Always ensure 'Menge' exists cleanly
+df["Menge"] = 0
+
 if not st.session_state.log_df.empty:
     consumption_totals = st.session_state.log_df.groupby(["Artikelbezeichnung", "Dimension"])["Menge"].sum().reset_index()
-    df = df.merge(consumption_totals, on=["Artikelbezeichnung", "Dimension"], how="left")
-    df["Menge"] = df["Menge"].fillna(0)
-else:
-    df["Menge"] = 0
+    if not consumption_totals.empty and "Menge" in consumption_totals.columns:
+        df = df.drop(columns=["Menge"]).merge(consumption_totals, on=["Artikelbezeichnung", "Dimension"], how="left")
+        df["Menge"] = df["Menge"].fillna(0)
 
 df["Netto-Gesamt"] = df["Gesamtbestand"] - df["Menge"]
 df["Status"] = df.apply(lambda row: "🔴 BESTELLEN!" if row["Netto-Gesamt"] <= row["Mindestbestand"] else "🟢 OK", axis=1)
@@ -132,3 +134,4 @@ elif menu == "⚙️ Stammdaten / Lager anpassen":
         st.session_state.inventory_df["Im Lager"] = edited_df["Im Lager"]
         st.session_state.inventory_df["In Montagekiste"] = edited_df["In Montagekiste"]
         st.success("Bestände erfolgreich aktualisiert!")
+    
